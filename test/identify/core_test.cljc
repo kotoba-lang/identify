@@ -1,53 +1,70 @@
 (ns identify.core-test
-  (:require [clojure.test :refer [deftest testing is]]
-            [identify.core :as identify]
-            [identity.core :as identity]))
+  (:require [clojure.test :refer [deftest is]]
+            [identify.core :as c]
+            [identify.model :as m]
+            [identify.ports :as p]))
 
-(deftest normalize-identifier-test
-  (testing "email lowercased + trimmed"
-    (is (= "alice@example.com" (identify/normalize-identifier :email "  Alice@Example.COM "))))
-  (testing "phone strips everything but a leading + and digits"
-    (is (= "+15551234567" (identify/normalize-identifier :phone "+1 (555) 123-4567")))
-    (is (= "5551234567" (identify/normalize-identifier :phone "555.123.4567"))))
-  (testing "other types are unchanged"
-    (is (= "did:key:z6Mk..." (identify/normalize-identifier :did "did:key:z6Mk...")))))
+(deftest resolves-candidate
+  (let [port (reify p/IIdentify
+               (resolve-candidates [_ _]
+                 [(m/candidate "did:web:example.com:bob" 700 {:asserter "test"})
+                  (m/candidate "did:web:example.com:alice" 900 {:asserter "test"})]))
+        out (c/identify port (m/identifier :email "a@example.com" {}))]
+    (is (= 2 (count out)))
+    (is (= "did:web:example.com:alice" (:identify.candidate/subject (first out))))))
 
-(deftest resolve-or-create-test
-  (testing "creates when not found"
-    (let [store (identify/mock-identity-store)
-          {:keys [identity created?]}
-          (identify/resolve-or-create! store {:type :email :value "Alice@Example.com"
-                                                :attributes {:name "Alice"}
-                                                :id-fn (constantly "u1")})]
-      (is created?)
-      (is (= "u1" (:id identity)))
-      (is (= {:name "Alice"} (:attributes identity)))
-      (is (identity/find-identifier identity :email))
-      (is (= "alice@example.com" (:value (identity/find-identifier identity :email))))))
-  (testing "finds when already present, regardless of input casing/formatting"
-    (let [seed (-> (identity/new-identity {:id "u1"})
-                   (identity/add-identifier (identity/identifier :email "alice@example.com")))
-          store (identify/mock-identity-store [seed])
-          {:keys [identity created?]}
-          (identify/resolve-or-create! store {:type :email :value " ALICE@EXAMPLE.COM "
-                                                :id-fn (constantly "should-not-be-used")})]
-      (is (not created?))
-      (is (= "u1" (:id identity)))))
-  (testing "second resolve-or-create! for the same identifier does not create a duplicate"
-    (let [store (identify/mock-identity-store)
-          id-fn (let [calls (atom 0)] (fn [] (str "u" (swap! calls inc))))
-          first-result (identify/resolve-or-create! store {:type :email :value "a@b.com" :id-fn id-fn})
-          second-result (identify/resolve-or-create! store {:type :email :value "a@b.com" :id-fn id-fn})]
-      (is (:created? first-result))
-      (is (not (:created? second-result)))
-      (is (= (:id (:identity first-result)) (:id (:identity second-result)))))))
+(deftest rejects-invalid-identifier-and-candidate
+  (let [bad-port (reify p/IIdentify
+                   (resolve-candidates [_ _]
+                     [(m/candidate "did:web:example.com:alice" 1200 {})]))]
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+                 (c/identify bad-port (m/identifier :unknown "a@example.com" {}))))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+                 (c/identify bad-port (m/identifier :email "a@example.com" {}))))))
 
-(deftest link-identifier-test
-  (let [store (identify/mock-identity-store)
-        base (identity/new-identity {:id "u1"})
-        with-email (identify/link-identifier! store base :email "a@b.com")
-        linked (identify/link-identifier! store with-email :phone "+1 555 000 1111")]
-    (is (identity/find-identifier linked :email))
-    (is (identity/find-identifier linked :phone))
-    (testing "persisted in the store"
-      (is (= linked (identify/-find-by-identifier store :phone "+15550001111"))))))
+(deftest selects-top-candidate-above-threshold
+  (let [port (reify p/IIdentify
+               (resolve-candidates [_ _]
+                 [(m/candidate "did:web:example.com:bob" 700 {})
+                  (m/candidate "did:web:example.com:alice" 900 {})]))]
+    (is (= "did:web:example.com:alice"
+           (:identify.candidate/subject
+            (c/top-candidate port (m/identifier :email "a@example.com" {}) 800))))))
+
+(deftest calibrates-confidence-by-source
+  (let [candidate (m/candidate "did:web:example.com:alice" 900
+                               {:source :email-resolver})]
+    (is (= 720 (:identify.candidate/confidence
+                (c/calibrate-confidence candidate {:email-resolver 0.8}))))
+    (is (= 1000 (:identify.candidate/confidence
+                 (c/calibrate-confidence candidate {:email-resolver (fn [_ _] 1200)}))))))
+
+(deftest merges-duplicate-subject-candidates-and-evidence
+  (let [out (c/merge-candidates
+             [(m/candidate "did:web:example.com:alice" 800
+                           {:source :email
+                            :evidence-ref "kagi://evidence/email"})
+              (m/candidate "did:web:example.com:alice" 900
+                           {:source :wallet
+                            :evidence-ref "kagi://evidence/wallet"})
+              (m/candidate "did:web:example.com:bob" 400
+                           {:source :device
+                            :evidence-ref "kagi://evidence/device"})])]
+    (is (= 2 (count out)))
+    (is (= "did:web:example.com:alice" (:identify.candidate/subject (first out))))
+    (is (= ["kagi://evidence/wallet" "kagi://evidence/email"]
+           (:identify.candidate/evidence-refs (first out))))
+    (is (= 2 (count (:identify.candidate/assertions (first out)))))))
+
+(deftest flags-conflicting-top-candidates-after-calibration
+  (let [port (reify p/IIdentify
+               (resolve-candidates [_ _]
+                 [(m/candidate "did:web:example.com:alice" 910 {:source :email})
+                  (m/candidate "did:web:example.com:bob" 900 {:source :wallet})
+                  (m/candidate "did:web:example.com:carol" 700 {:source :device})]))
+        out (c/identify-merged port
+                               (m/identifier :email "a@example.com" {})
+                               {:conflict-delta 20
+                                :calibration {:email 1.0 :wallet 1.0 :device 1.0}})]
+    (is (= [true true false]
+           (mapv :identify.candidate/conflict? out)))))

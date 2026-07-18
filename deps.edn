@@ -1,11 +1,7 @@
 {:paths ["src"]
- :deps {io.github.kotoba-lang/identity
-        {:git/url "https://github.com/kotoba-lang/identity.git"
-         :git/sha "10387818a023273623308fe88af721a91f6926d1"}}
- :aliases
- {:local {:override-deps {io.github.kotoba-lang/identity
-                          {:local/root "../identity"}}}
-  :test {:extra-paths ["test"]
-         :extra-deps {io.github.cognitect-labs/test-runner
-                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts ["-m" "cognitect.test-runner"]}}}
+ :deps {}
+ :aliases {:test {:extra-paths ["test"]
+                  :extra-deps {io.github.cognitect-labs/test-runner
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                  :main-opts ["-m" "cognitect.test-runner"]
+                  :exec-fn cognitect.test-runner.api/test}}}
