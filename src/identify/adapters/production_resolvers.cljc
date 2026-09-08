@@ -1,5 +1,5 @@
 (ns identify.adapters.production-resolvers
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [identify.model :as m]
             [identify.ports :as p]))
 
@@ -11,8 +11,8 @@
         value (:identify.identifier/value identifier)]
     (assoc identifier :identify.identifier/value
            (case type
-             :email (some-> value str/lower-case str/trim)
-             :wallet (some-> value str/lower-case)
+             :email (some-> value str/lower str/trim)
+             :wallet (some-> value str/lower)
              :did (some-> value str/trim)
              :device (some-> value str)
              value))))
