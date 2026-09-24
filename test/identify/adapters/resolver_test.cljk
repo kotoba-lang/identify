@@ -1,5 +1,5 @@
 (ns identify.adapters.resolver-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [identify.adapters.resolver :as a]
             [identify.core :as c]
             [identify.model :as m]))

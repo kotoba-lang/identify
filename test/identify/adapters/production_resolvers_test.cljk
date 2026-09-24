@@ -1,5 +1,5 @@
 (ns identify.adapters.production-resolvers-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [identify.adapters.production-resolvers :as r]
             [identify.model :as m]
             [identify.ports :as p]))

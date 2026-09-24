@@ -1,5 +1,5 @@
 (ns identify.adapters.edn-resolver-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [identify.adapters.edn-resolver :as edn-resolver]
             [identify.adapters.resolver :as resolver]
             [identify.core :as c]
