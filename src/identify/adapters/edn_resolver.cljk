@@ -1,17 +1,17 @@
 (ns identify.adapters.edn-resolver
   (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+            [kotoba.io :as io]
             [identify.adapters.resolver :as resolver]))
 
 (defn- read-index [file]
-  (if (.exists (io/file file))
+  (if (io/exists? (io/file file))
     (edn/read-string (slurp file))
     {}))
 
 (defn- write-index! [file index]
   (let [f (io/file file)]
-    (when-let [parent (.getParentFile f)]
-      (.mkdirs parent))
+    (when-let [parent (io/parent-file f)]
+      (io/mkdirs parent))
     (spit f (pr-str index))
     index))
 
