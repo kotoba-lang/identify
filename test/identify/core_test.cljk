@@ -1,5 +1,5 @@
 (ns identify.core-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [identify.core :as c]
             [identify.model :as m]
             [identify.ports :as p]))
